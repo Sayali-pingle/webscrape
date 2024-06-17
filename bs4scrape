@@ -1,0 +1,57 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+import os
+
+base_url= 'https://drawdown.org'
+for a in soup.find_all('a', href=lambda href:href and '/solutions/' in href):
+    url = f'{base_url}{a["href"]}'
+
+    # Send a GET request to the webpage
+    response = requests.get(url)
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Parse the webpage content with Beautiful Soup
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Scrape the title
+        title = soup.find('h1')
+        
+        # Clean the title to make it a valid file name
+        if title:
+            title_text = title.get_text().strip()
+            safe_title = re.sub(r'[\\/*?:"<>|]', "", title_text)
+        else:
+            safe_title = "default_title"
+
+        # Scrape the content
+        content = soup.find('div', class_='col-left solution-summary-2021')
+        if content:
+            content_text = content.get_text().strip()
+        else:
+            content_text = "Content not found"
+
+        # Scrape the statistical figures
+        stat_figures = soup.find('div', class_='col-right')
+        if stat_figures:
+            stat_figures_text = stat_figures.get_text().strip()
+        else:
+            stat_figures_text = "Statistical figures not found"
+
+        # Get the current working directory
+        current_directory = os.getcwd()
+        
+        # Create the file path
+        file_path = os.path.join(current_directory, f'{safe_title}.txt')
+
+        # Write the text to a txt file with the name of the file as the title of the solution
+        with open(file_path, 'w') as f:
+            f.write(title_text + '\n\n')
+            f.write(content_text + '\n\n')
+            f.write(stat_figures_text + '\n')
+            
+        # Print the file path
+        print(f"Content saved to {file_path}")
+    else:
+        print(f"Failed to retrieve the webpage. Status code: {response.status_code}")
