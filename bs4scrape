@@ -1,6 +1,12 @@
+import os.path
+from llama_index import (
+    VectorStoreIndex,
+    SimpleDirectoryReader,
+    StorageContext,
+    load_index_from_storage,
+)
 import json
 import datetime
-import os
 
 class MemoryWithLogging:
     def __init__(self, memory_file='memory.json', log_file='logs.json'):
@@ -53,74 +59,54 @@ class MemoryWithLogging:
         })
         self.save_logs()
 
-
-
-
-
-
-from llama_index.llms.azure_openai import AzureOpenAI
-from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-
-llm = AzureOpenAI(
-    model="gpt-35-turbo-16k",
-    deployment_name="my-custom-llm",
-    api_key=api_key,
-    azure_endpoint=azure_endpoint,
-    api_version=api_version,
-)
-
-embed_model = AzureOpenAIEmbedding(
-    model="text-embedding-ada-002",
-    deployment_name="my-custom-embedding",
-    api_key=api_key,
-    azure_endpoint=azure_endpoint,
-    api_version=api_version,
-)
-
-memory = MemoryWithLogging()
-
-def chatbot(user_id, query):
-    # Retrieve user's memory
-    user_memory = memory.get_memory(user_id)
-    
-    # Process the query with memory and LLM
-    response = llm.generate_response(query, context=user_memory)
-    response_text = response['text']
-
-    # Log the query and response
-    memory.log_query(user_id, query, response_text)
-    
-    # Update the memory based on the response
-    if 'memory_update' in response:
-        for key, value in response['memory_update'].items():
-            memory.update_memory(user_id, key, value)
-    
-    return response_text
-
-# Example usage
-user_id = 'user123'
-query = "What's the weather like today?"
-response = chatbot(user_id, query)
-print(response)
-
-
-
-
-
-
-
-
-class MemoryWithLogging:
-    # ... (existing methods)
-
     def get_logs(self, user_id=None):
         if user_id:
             return [log for log in self.logs if log['user_id'] == user_id]
         return self.logs
 
-# Example usage
-logs = memory.get_logs('user123')
-for log in logs:
-    print(log)
+# Initialize memory and logging
+memory = MemoryWithLogging()
 
+# Check if storage already exists
+PERSIST_DIR = "./storage"
+if not os.path.exists(PERSIST_DIR):
+    # Load the documents and create the index
+    documents = SimpleDirectoryReader("data").load_data()
+    index = VectorStoreIndex.from_documents(documents)
+    # Store it for later
+    index.storage_context.persist(persist_dir=PERSIST_DIR)
+else:
+    # Load the existing index
+    storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
+    index = load_index_from_storage(storage_context)
+
+# Function to handle user queries
+def handle_query(user_id, query, use_memory=True):
+    # Retrieve user's memory if use_memory is True
+    user_memory = memory.get_memory(user_id) if use_memory else {}
+
+    # Combine the query with user's memory (if needed)
+    combined_query = query  # Modify this if you need to include memory in the query
+
+    # Query the index
+    query_engine = index.as_query_engine()
+    response = query_engine.query(combined_query)
+    response_text = response.response  # Adjust based on the actual response structure
+
+    # Log the query and response
+    memory.log_query(user_id, query, response_text)
+
+    # Update the memory based on the response (if applicable)
+    # Example: if response includes memory updates
+    # if 'memory_update' in response:
+    #     for key, value in response['memory_update'].items():
+    #         memory.update_memory(user_id, key, value)
+
+    return response_text
+
+# Example usage
+user_id = 'user123'
+query = "What are transformers?"
+use_memory = True  # Change this to False if the user does not want to use their memory
+response = handle_query(user_id, query, use_memory)
+print(response)
