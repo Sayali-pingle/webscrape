@@ -1,57 +1,126 @@
-import requests
-from bs4 import BeautifulSoup
-import re
+import json
+import datetime
 import os
 
-base_url= 'https://drawdown.org'
-for a in soup.find_all('a', href=lambda href:href and '/solutions/' in href):
-    url = f'{base_url}{a["href"]}'
+class MemoryWithLogging:
+    def __init__(self, memory_file='memory.json', log_file='logs.json'):
+        self.memory_file = memory_file
+        self.log_file = log_file
+        self.memory = self.load_memory()
+        self.logs = self.load_logs()
 
-    # Send a GET request to the webpage
-    response = requests.get(url)
+    def load_memory(self):
+        if os.path.exists(self.memory_file):
+            with open(self.memory_file, 'r') as file:
+                return json.load(file)
+        return {}
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Parse the webpage content with Beautiful Soup
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Scrape the title
-        title = soup.find('h1')
-        
-        # Clean the title to make it a valid file name
-        if title:
-            title_text = title.get_text().strip()
-            safe_title = re.sub(r'[\\/*?:"<>|]', "", title_text)
-        else:
-            safe_title = "default_title"
+    def save_memory(self):
+        with open(self.memory_file, 'w') as file:
+            json.dump(self.memory, file)
 
-        # Scrape the content
-        content = soup.find('div', class_='col-left solution-summary-2021')
-        if content:
-            content_text = content.get_text().strip()
-        else:
-            content_text = "Content not found"
+    def load_logs(self):
+        if os.path.exists(self.log_file):
+            with open(self.log_file, 'r') as file:
+                return json.load(file)
+        return []
 
-        # Scrape the statistical figures
-        stat_figures = soup.find('div', class_='col-right')
-        if stat_figures:
-            stat_figures_text = stat_figures.get_text().strip()
-        else:
-            stat_figures_text = "Statistical figures not found"
+    def save_logs(self):
+        with open(self.log_file, 'w') as file:
+            json.dump(self.logs, file)
 
-        # Get the current working directory
-        current_directory = os.getcwd()
-        
-        # Create the file path
-        file_path = os.path.join(current_directory, f'{safe_title}.txt')
+    def get_memory(self, user_id):
+        return self.memory.get(user_id, {})
 
-        # Write the text to a txt file with the name of the file as the title of the solution
-        with open(file_path, 'w') as f:
-            f.write(title_text + '\n\n')
-            f.write(content_text + '\n\n')
-            f.write(stat_figures_text + '\n')
-            
-        # Print the file path
-        print(f"Content saved to {file_path}")
-    else:
-        print(f"Failed to retrieve the webpage. Status code: {response.status_code}")
+    def update_memory(self, user_id, key, value):
+        if user_id not in self.memory:
+            self.memory[user_id] = {}
+        self.memory[user_id][key] = value
+        self.save_memory()
+
+    def clear_memory(self, user_id):
+        if user_id in self.memory:
+            del self.memory[user_id]
+            self.save_memory()
+
+    def log_query(self, user_id, query, response):
+        timestamp = datetime.datetime.now().isoformat()
+        self.logs.append({
+            'user_id': user_id,
+            'query': query,
+            'response': response,
+            'timestamp': timestamp
+        })
+        self.save_logs()
+
+
+
+
+
+
+from llama_index.llms.azure_openai import AzureOpenAI
+from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+
+llm = AzureOpenAI(
+    model="gpt-35-turbo-16k",
+    deployment_name="my-custom-llm",
+    api_key=api_key,
+    azure_endpoint=azure_endpoint,
+    api_version=api_version,
+)
+
+embed_model = AzureOpenAIEmbedding(
+    model="text-embedding-ada-002",
+    deployment_name="my-custom-embedding",
+    api_key=api_key,
+    azure_endpoint=azure_endpoint,
+    api_version=api_version,
+)
+
+memory = MemoryWithLogging()
+
+def chatbot(user_id, query):
+    # Retrieve user's memory
+    user_memory = memory.get_memory(user_id)
+    
+    # Process the query with memory and LLM
+    response = llm.generate_response(query, context=user_memory)
+    response_text = response['text']
+
+    # Log the query and response
+    memory.log_query(user_id, query, response_text)
+    
+    # Update the memory based on the response
+    if 'memory_update' in response:
+        for key, value in response['memory_update'].items():
+            memory.update_memory(user_id, key, value)
+    
+    return response_text
+
+# Example usage
+user_id = 'user123'
+query = "What's the weather like today?"
+response = chatbot(user_id, query)
+print(response)
+
+
+
+
+
+
+
+
+class MemoryWithLogging:
+    # ... (existing methods)
+
+    def get_logs(self, user_id=None):
+        if user_id:
+            return [log for log in self.logs if log['user_id'] == user_id]
+        return self.logs
+
+# Example usage
+logs = memory.get_logs('user123')
+for log in logs:
+    print(log)
+
