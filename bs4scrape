@@ -110,3 +110,61 @@ query = "What are transformers?"
 use_memory = True  # Change this to False if the user does not want to use their memory
 response = handle_query(user_id, query, use_memory)
 print(response)
+
+
+#STREAMLIT
+
+import streamlit as st
+from streamlit_chat import message
+from chat_func import Chatfunc
+
+# Create an instance of the Chatfunc class
+chatfunc = Chatfunc()
+
+# Initialize session state
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'message_counter' not in st.session_state:
+    st.session_state.message_counter = 0
+if 'current_user_id' not in st.session_state:
+    st.session_state.current_user_id = None
+
+st.header("Chatbot")
+
+# Display conversation history at the top
+chat_container = st.container()
+
+user_id = st.text_input("Type your user_id:")
+
+# Check if user_id has changed
+if user_id != st.session_state.current_user_id:
+    st.session_state.messages = []
+    st.session_state.message_counter = 0
+    st.session_state.current_user_id = user_id
+
+text_in = st.text_input("What's your question?")
+
+if st.button("Send") and user_id:
+    # Add user message to session state
+    st.session_state.messages.append({
+        "content": text_in, 
+        "is_user": True, 
+        "key": f"msg_{st.session_state.message_counter}"
+    })
+    st.session_state.message_counter += 1
+    
+    # Get the response from the Chatfunc class
+    response = chatfunc.handle_query(user_id, text_in)
+    
+    # Add chatbot response to session state
+    st.session_state.messages.append({
+        "content": response, 
+        "is_user": False, 
+        "key": f"msg_{st.session_state.message_counter}"
+    })
+    st.session_state.message_counter += 1
+
+# Display all messages in the chat container
+with chat_container:
+    for msg in st.session_state.messages:
+        message(msg["content"], is_user=msg["is_user"], key=msg["key"])
