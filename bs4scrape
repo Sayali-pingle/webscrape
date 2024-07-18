@@ -1,116 +1,54 @@
-import os.path
-from llama_index import (
-    VectorStoreIndex,
-    SimpleDirectoryReader,
-    StorageContext,
-    load_index_from_storage,
-)
-import json
-import datetime
+        parser = LlamaParse(
+            result_type="markdown",  # "markdown" and "text" are available
+            api_key= os.getenv('LLAMA_CLOUD_API_KEY'),
+            verbose= True
+        )
+        # filename_fn = lambda filename: {"file_name": filename}
+        # print(filename_fn)
+        # use SimpleDirectoryReader to parse our file
+        file_paths= self.filestore.load_logs()
+        print("list of docs before directory reader", file_paths)
+        file_extractor = {".pdf": parser, ".txt":parser}
+        reader = SimpleDirectoryReader('Marble_data_folder', file_extractor=file_extractor).load_data()
+        # docu= reader.load_data()
+        all_docs=[]
+        print("printing type reader", type(reader))
+        for docs in reader:
+            # file_paths.append
+            metadata= docs.metadata
+            filepath= metadata.get('file_path')
+            print("printing file path in the loop", filepath)
+            self.filestore.log_query(filepath)
+            print("docs getting printed")
+            # for doc in docs:
+            #     all_docs.append(doc)
+        print("list of docs after directory reader", self.filestore.load_logs())
 
-class MemoryWithLogging:
-    def __init__(self, memory_file='memory.json', log_file='logs.json'):
-        self.memory_file = memory_file
-        self.log_file = log_file
-        self.memory = self.load_memory()
-        self.logs = self.load_logs()
-
-    def load_memory(self):
-        if os.path.exists(self.memory_file):
-            with open(self.memory_file, 'r') as file:
-                return json.load(file)
-        return {}
-
-    def save_memory(self):
-        with open(self.memory_file, 'w') as file:
-            json.dump(self.memory, file)
-
-    def load_logs(self):
-        if os.path.exists(self.log_file):
-            with open(self.log_file, 'r') as file:
-                return json.load(file)
-        return []
-
-    def save_logs(self):
-        with open(self.log_file, 'w') as file:
-            json.dump(self.logs, file)
-
-    def get_memory(self, user_id):
-        return self.memory.get(user_id, {})
-
-    def update_memory(self, user_id, key, value):
-        if user_id not in self.memory:
-            self.memory[user_id] = {}
-        self.memory[user_id][key] = value
-        self.save_memory()
-
-    def clear_memory(self, user_id):
-        if user_id in self.memory:
-            del self.memory[user_id]
-            self.save_memory()
-
-    def log_query(self, user_id, query, response):
-        timestamp = datetime.datetime.now().isoformat()
-        self.logs.append({
-            'user_id': user_id,
-            'query': query,
-            'response': response,
-            'timestamp': timestamp
-        })
-        self.save_logs()
-
-    def get_logs(self, user_id=None):
-        if user_id:
-            return [log for log in self.logs if log['user_id'] == user_id]
-        return self.logs
-
-# Initialize memory and logging
-memory = MemoryWithLogging()
-
-# Check if storage already exists
-PERSIST_DIR = "./storage"
-if not os.path.exists(PERSIST_DIR):
-    # Load the documents and create the index
-    documents = SimpleDirectoryReader("data").load_data()
-    index = VectorStoreIndex.from_documents(documents)
-    # Store it for later
-    index.storage_context.persist(persist_dir=PERSIST_DIR)
-else:
-    # Load the existing index
-    storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
-    index = load_index_from_storage(storage_context)
-
-# Function to handle user queries
-def handle_query(user_id, query, use_memory=True):
-    # Retrieve user's memory if use_memory is True
-    user_memory = memory.get_memory(user_id) if use_memory else {}
-
-    # Combine the query with user's memory (if needed)
-    combined_query = query  # Modify this if you need to include memory in the query
-
-    # Query the index
-    query_engine = index.as_query_engine()
-    response = query_engine.query(combined_query)
-    response_text = response.response  # Adjust based on the actual response structure
-
-    # Log the query and response
-    memory.log_query(user_id, query, response_text)
-
-    # Update the memory based on the response (if applicable)
-    # Example: if response includes memory updates
-    # if 'memory_update' in response:
-    #     for key, value in response['memory_update'].items():
-    #         memory.update_memory(user_id, key, value)
-
-    return response_text
-
-# Example usage
-user_id = 'user123'
-query = "What are transformers?"
-use_memory = True  # Change this to False if the user does not want to use their memory
-response = handle_query(user_id, query, use_memory)
-print(response)
-
+        vector_store = MilvusVectorStore(
+                uri="./milvus_test_2.db", dim=1536, overwrite=True # text-embedding-ada-002 has dimension of 1536
+                )
+        pipeline = IngestionPipeline(
+                transformations=[
+                    SentenceSplitter(chunk_size=256, chunk_overlap=32),
+                    TitleExtractor(),
+                    Settings.embed_model,
+                    ],
+                    vector_store = vector_store
+                    )
+        # existing_ids= vector_store.list_ids()
+        # for file in os.listdir('Marble_data'):
+        #     if vector_store.get_entity_by_id('pdf_vectors', file):
+        #         existing_ids.append(file)
+        
+        # print("list of exsisting ids", existing_ids)
+        # run the pipeline
+        # nodes = pipeline.run(documents=documents)
+        pipeline.run(documents=reader)
+        self.index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
+        print('self.index excuted successfully')
+        # Store it for later
+        # self.index.storage_context.persist(persist_dir=PERSIST_DIR)
+        return self.index
 
 #STREAMLIT
 
