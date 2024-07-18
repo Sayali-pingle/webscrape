@@ -168,3 +168,116 @@ if st.button("Send") and user_id:
 with chat_container:
     for msg in st.session_state.messages:
         message(msg["content"], is_user=msg["is_user"], key=msg["key"])
+
+
+
+
+
+################################
+
+import streamlit as st
+from streamlit_chat import message
+from chat_func import Chatfunc
+
+# Create an instance of the Chatfunc class
+chatfunc = Chatfunc()
+
+# Initialize session state
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'message_counter' not in st.session_state:
+    st.session_state.message_counter = 0
+if 'current_user_id' not in st.session_state:
+    st.session_state.current_user_id = None
+if 'feedback_given' not in st.session_state:
+    st.session_state.feedback_given = False
+
+# Custom CSS (same as before)
+st.markdown("""
+<style>
+... (previous CSS remains the same)
+.feedback-container {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #1E1E1E;
+    border-radius: 5px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Fixed title at the top
+st.markdown('<div class="title-container"><h1>Chatbot</h1></div>', unsafe_allow_html=True)
+
+# Scrollable chat container
+chat_container = st.container()
+chat_container.markdown('<div class="chat-container">', unsafe_allow_html=True)
+
+with chat_container:
+    for msg in st.session_state.messages:
+        message(msg["content"], is_user=msg["is_user"], key=msg["key"])
+    
+    # Display feedback widget after 3 chats
+    if len(st.session_state.messages) >= 6 and not st.session_state.feedback_given:
+        st.markdown('<div class="feedback-container">', unsafe_allow_html=True)
+        st.write("How was your experience?")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("😃 Good"):
+                st.session_state.feedback_given = True
+                st.success("Thank you for your feedback!")
+        with col2:
+            if st.button("😐 Neutral"):
+                st.session_state.feedback_given = True
+                st.success("Thank you for your feedback!")
+        with col3:
+            if st.button("😟 Poor"):
+                st.session_state.feedback_given = True
+                st.success("Thank you for your feedback!")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+chat_container.markdown('</div>', unsafe_allow_html=True)
+
+# Fixed input container at the bottom (same as before)
+input_container = st.container()
+input_container.markdown('<div class="input-container">', unsafe_allow_html=True)
+
+with input_container:
+    col1, col2, col3 = st.columns([1, 3, 1])
+    with col1:
+        user_id = st.text_input("User ID:", key="user_id")
+    with col2:
+        text_in = st.text_input("Your question:", key="question")
+    with col3:
+        send_button = st.button("Send")
+
+    if send_button and user_id:
+        # Check if user_id has changed
+        if user_id != st.session_state.current_user_id:
+            st.session_state.messages = []
+            st.session_state.message_counter = 0
+            st.session_state.current_user_id = user_id
+            st.session_state.feedback_given = False
+
+        # Add user message to session state
+        st.session_state.messages.append({
+            "content": text_in, 
+            "is_user": True, 
+            "key": f"msg_{st.session_state.message_counter}"
+        })
+        st.session_state.message_counter += 1
+        
+        # Get the response from the Chatfunc class
+        response = chatfunc.handle_query(user_id, text_in)
+        
+        # Add chatbot response to session state
+        st.session_state.messages.append({
+            "content": response, 
+            "is_user": False, 
+            "key": f"msg_{st.session_state.message_counter}"
+        })
+        st.session_state.message_counter += 1
+        
+        # Rerun the app to update the chat
+        st.experimental_rerun()
+
+input_container.markdown('</div>', unsafe_allow_html=True)
