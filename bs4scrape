@@ -1,31 +1,105 @@
-        parser = LlamaParse(
+   from api_key import OpenAIKey
+from logs_handling import MemoryWithLogging
+import os
+import json
+import openai
+import llama_index
+import requests
+import warnings
+import time
+import cProfile, pstats
+from pstats import SortKey
+#Do NOT import AzureOpenAI from OpenAI
+from llama_index.llms.azure_openai import AzureOpenAI
+import textwrap
+# from llama_index.indices.managed.llama_cloud import LlamaCloudIndex
+from llama_parse import LlamaParse
+from filestore import Storefilepaths
+# from deeplake.core.vectorstore import DeepLakeVectorStore
+from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+from llama_index.core import Settings, Document
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
+from llama_index.core.response.pprint_utils import pprint_response
+import logging
+import sys
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.extractors import TitleExtractor
+from llama_index.core.ingestion import IngestionPipeline, IngestionCache
+from llama_index.vector_stores.milvus import MilvusVectorStore
+from llama_index.core.vector_stores.types import VectorStoreQuery, MetadataFilters, MetadataFilter
+from llama_parse.base import ResultType, Language
+
+
+class Rag:
+    
+    def __init__(self):
+        logging.basicConfig(
+            stream=sys.stdout, level=logging.INFO
+        )  # logging.DEBUG for more verbose output
+        logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+        self.model= OpenAIKey()
+        Settings.llm = self.model.llmmodel()
+        Settings.embed_model = self.model.embedmodel()
+        # Initialize memory and logging
+        self.memory = MemoryWithLogging()
+        self.filestore= Storefilepaths()
+
+    def storage(self):
+        # data_folder='/marble_data'
+        # file_paths =[]
+        # for filename in os.listdir(data_folder):
+        #     file_path= os.path.join(data_folder, filename)
+        #     if file_path not in file_paths:
+
+        instructions= """The provided document is a report which will be used to extract numerical and textual data. Some pages do NOT have a title. It might contain tables. Try to extract all the information is a cohesive way."""
+        parser= LlamaParse(
             result_type="markdown",  # "markdown" and "text" are available
             api_key= os.getenv('LLAMA_CLOUD_API_KEY'),
+            parsing_instruction= instructions,
             verbose= True
-        )
-        # filename_fn = lambda filename: {"file_name": filename}
-        # print(filename_fn)
+        ).load_data("./temp_data_folder/BE-State-of-the-Transition-2023.pdf")
+
         # use SimpleDirectoryReader to parse our file
-        file_paths= self.filestore.load_logs()
-        print("list of docs before directory reader", file_paths)
-        file_extractor = {".pdf": parser, ".txt":parser}
-        reader = SimpleDirectoryReader('Marble_data_folder', file_extractor=file_extractor).load_data()
-        # docu= reader.load_data()
-        all_docs=[]
-        print("printing type reader", type(reader))
-        for docs in reader:
-            # file_paths.append
-            metadata= docs.metadata
-            filepath= metadata.get('file_path')
-            print("printing file path in the loop", filepath)
-            self.filestore.log_query(filepath)
-            print("docs getting printed")
-            # for doc in docs:
-            #     all_docs.append(doc)
-        print("list of docs after directory reader", self.filestore.load_logs())
+        file_extractor = {".pdf": parser}
+        # reader = SimpleDirectoryReader('temp_data_folder', file_extractor=file_extractor).load_data()
+        print("printing reader")
+        # print(parser)
+        # all_docs = []
+        # for docs in reader:
+        #     for doc in docs:
+        #         # do something with the doc
+        #         # doc.text = doc.text.upper()
+        #         all_docs.append(doc)
+        # print("File extractor:", file_extractor)
+        # print("length of recursive doc", len(all_docs))
+        # parser = LlamaParse(
+        #     result_type="markdown",  # "markdown" and "text" are available
+        #     api_key= os.getenv('LLAMA_CLOUD_API_KEY'),
+        #     verbose= True,
+        # )
+        # # filename_fn = lambda filename: {"file_name": filename}
+        # # print(filename_fn)
+        # # use SimpleDirectoryReader to parse our file
+        # file_paths= self.filestore.load_logs()
+        # print("list of docs before directory reader", file_paths)
+        # file_extractor = {".pdf": parser, ".txt":parser}
+        # reader = SimpleDirectoryReader('temp_data_folder', file_extractor=file_extractor).load_data()
+        # # docu= reader.load_data()
+        # all_docs=[]
+        # print("printing type reader", reader)
+        # for docs in reader:
+        #     # file_paths.append
+        #     metadata= docs.metadata
+        #     filepath= metadata.get('file_path')
+        #     print("printing file path in the loop", filepath)
+        #     self.filestore.log_query(filepath)
+        #     print("docs getting printed")
+        #     # for doc in docs:
+        #     #     all_docs.append(doc)
+        # print("list of docs after directory reader", self.filestore.load_logs())
 
         vector_store = MilvusVectorStore(
-                uri="./milvus_test_2.db", dim=1536, overwrite=True # text-embedding-ada-002 has dimension of 1536
+                uri="./milvus_test_2.db", dim=1536, overwrite=False # text-embedding-ada-002 has dimension of 1536
                 )
         pipeline = IngestionPipeline(
                 transformations=[
@@ -43,12 +117,67 @@
         # print("list of exsisting ids", existing_ids)
         # run the pipeline
         # nodes = pipeline.run(documents=documents)
-        pipeline.run(documents=reader)
+        pipeline.run(documents=parser)
         self.index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
         print('self.index excuted successfully')
         # Store it for later
         # self.index.storage_context.persist(persist_dir=PERSIST_DIR)
         return self.index
+
+    
+
+    # Function to handle user queries
+    def handle_query(self, user_id, query):
+        # Retrieve user's memory (from logs)
+        start_time = time.time()
+        
+        self.user_id= user_id
+        self.query= query
+        # self.user_memory = self.memory.get_logs(self.user_id)
+        self.index= self.storage()
+        # Combine the query with user's memory (if needed)
+        # self.memory_content = " ".join(log['logs'] for log in self.user_memory) # Concatenate all memory values
+        # self.combined_query += " " + self.memory_content
+        # Query the index
+        print('self.index called successfully in handle query')
+        self.query_engine = self.index.as_query_engine()
+        self.response = self.query_engine.query(self.query)
+        pprint_response(self.response,show_source=True)
+        self.response_text = self.response.response  # Adjust based on the actual response structure
+        print("--- %s seconds ---" % (time.time() - start_time))
+        # Log the query and response
+        self.memory.log_query(self.user_id, self.query, self.response_text)
+
+        # Update the memory based on the response (if applicable)
+        # Example: if response includes memory updates
+        # if hasattr(response, 'memory_update'):  # Check if 'memory_update' attribute exists
+        #     for key, value in response.memory_update.items():
+        #         memory.update_memory(user_id, key, value)
+        return self.response_text
+
+# obj = Rag()
+# # # obj.storage()
+# # # # # User ID and queries
+# user_id = 'w23'
+# # query="which year was breakthrough energy founded?"
+# # print(obj.handle_query(user_id, query))
+# queries = [
+#     "Explain what Fervo company is"
+#     # "what does the company Malta do? give some statistics about the change brought by the steps taken by this company.",
+#     # "What are ESG risk categories?"
+# ]
+
+# # Loop through queries and get responses
+# for i in range(len(queries)):
+#     ans = obj.handle_query(user_id, queries[i])
+#     print(f"Query {i+1}: {ans}")
+
+       
+#     "who founded breakthrough energy and when?",
+    # "how much greenhouse gas is emitted?",
+    # "what is the challenge with electricity and what are the solutions for it?",
+    # "Explain how wind energy is helpful with some statistics figures."
+
 
 #STREAMLIT
 
